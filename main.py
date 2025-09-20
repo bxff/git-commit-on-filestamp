@@ -15,7 +15,7 @@ load_dotenv()
 API_ENDPOINT = os.getenv("API_ENDPOINT")
 API_KEY = os.getenv("API_KEY")
 MODEL = os.getenv("MODEL")
-DIFF_CHAR_LIMIT = int(os.getenv("DIFF_CHAR_LIMIT", "1000")) # Default to 1000 if not set
+DIFF_CHAR_LIMIT = int(os.getenv("DIFF_CHAR_LIMIT", "4000")) # Default to 4000 if not set
 
 # Git author configuration
 GIT_AUTHOR_NAME = os.getenv("GIT_AUTHOR_NAME")
