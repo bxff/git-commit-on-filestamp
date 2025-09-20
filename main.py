@@ -442,7 +442,7 @@ def main():
                 print(f"Individual file commit failed: {file_to_commit}")
                 failed_commits += 1
         
-        print(f"\n--- Directory Commit Summary ---")
+        print("\n--- Directory Commit Summary ---")
         print(f"Successfully committed {successful_commits} files.")
         if failed_commits > 0:
             print(f"Failed to commit {failed_commits} files.")
