@@ -309,11 +309,66 @@ def commit_files(files, datetime_obj, author, author_email, use_ai_for_message=F
         return None
 
 
+def get_git_repo_root(target_path):
+    """
+    Finds the root of the git repository containing the target_path.
+    Returns the absolute path to the git repository root, or None if not found.
+    """
+    # We need to run git commands from the directory containing the target path
+    # to ensure git can find the repository.
+    initial_cwd = os.getcwd()
+    if os.path.isfile(target_path):
+        search_dir = os.path.dirname(target_path)
+    else:
+        search_dir = target_path
+    
+    try:
+        os.chdir(search_dir)
+        # print(f"Temporarily changed directory to: {search_dir} for git rev-parse") # Optional: for debugging
+
+        # Get the path to the .git directory
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        git_dir_path = result.stdout.strip()
+
+        # If git_dir_path is ".git", we are already at the root.
+        # If it's something else (e.g., "../.git", ".git/modules/submodule"),
+        # we need to find the actual working tree root.
+        # `git rev-parse --show-toplevel` gives the root of the working tree directly.
+        toplevel_result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        repo_root = toplevel_result.stdout.strip()
+        
+        if not repo_root:
+            # Fallback or error if toplevel is empty (should not happen with check=True)
+            print("Error: 'git rev-parse --show-toplevel' returned an empty path.")
+            return None
+        
+        # print(f"Found git repository root at: {repo_root}") # Optional: for debugging
+        return repo_root
+    except subprocess.CalledProcessError as e:
+        print(f"Error finding git repository root for '{target_path}': {e.stderr.strip()}")
+        return None
+    except FileNotFoundError:
+        print(f"Error: git command not found. Is Git installed and in your PATH?")
+        return None
+    finally:
+        # Change back to the original directory, important for script behavior
+        os.chdir(initial_cwd)
+
 def main():
     parser = argparse.ArgumentParser(
         description="Populate Git repo with historical commits, using AI for messages by default with fallback."
     )
-    parser.add_argument("path", help="Path to a file or directory to commit.")
+    parser.add_argument("path", nargs='?', default=os.getcwd(), help="Path to a file or directory to commit. Defaults to the current directory if not provided.")
     parser.add_argument("--author", help="Author of the commits (defaults to GIT_AUTHOR_NAME from .env)")
     parser.add_argument("--email", help="Email of author (defaults to GIT_AUTHOR_EMAIL from .env)")
     parser.add_argument("--no-ai", action="store_true", help="Disable AI and use default commit messages.")
@@ -328,33 +383,42 @@ def main():
         sys.exit(1)
 
     # Determine the actual directory for git operations and if the target is a single file
+    # If args.path is a string (even if it's the default from os.getcwd()), os.path.abspath will work.
+    # If os.getcwd() returns a path with spaces or special characters, it's still a single string.
     abs_target_path = os.path.abspath(args.path)
     is_single_file = os.path.isfile(abs_target_path)
     is_directory = os.path.isdir(abs_target_path)
 
-    if not is_single_file and not is_directory:
-        print(f"Error: Path '{args.path}' (resolved to '{abs_target_path}') is not a valid file or directory.")
-        sys.exit(1)
+    # If path was not provided, it defaults to current directory, which is a directory.
+    # We should add a check to ensure the default path (current dir) is valid.
+    if not args.path: # Path was not provided, using default
+        print(f"No path provided, defaulting to current directory: {abs_target_path}")
+        if not is_directory: # Should always be a directory if defaulting to cwd, but good to check
+            print(f"Error: Default path '{abs_target_path}' is not a valid directory.")
+            sys.exit(1)
+    else: # Path was provided
+        if not is_single_file and not is_directory:
+            print(f"Error: Path '{args.path}' (resolved to '{abs_target_path}') is not a valid file or directory.")
+            sys.exit(1)
 
-    if is_single_file:
-        target_path = abs_target_path
-        git_repo_dir = os.path.dirname(target_path)
-    else: # It's a directory
-        target_path = abs_target_path
-        git_repo_dir = target_path
+    # Determine the git repository root using the new function
+    git_repo_dir = get_git_repo_root(abs_target_path)
+    if not git_repo_dir:
+        print("Error: Could not determine the git repository root. Please ensure you are inside a git repository or provide a valid path to one.")
+        sys.exit(1)
 
     # Change to the determined git repository directory
     try:
         os.chdir(git_repo_dir)
-        print(f"Changed directory to: {git_repo_dir}")
+        print(f"Changed directory to git repository root: {git_repo_dir}")
     except FileNotFoundError:
         print(f"Error: Could not change to directory '{git_repo_dir}'. It might not exist.")
         sys.exit(1)
 
 
-    if not os.path.exists(".git"):
+    if not os.path.exists(".git"): # This check is now more robust
         print(
-            "Error: No .git directory found in the target path. Please initialize a Git repository first."
+            f"Error: No .git directory found in the resolved repository path '{git_repo_dir}'. Please initialize a Git repository first."
         )
         sys.exit(1)
 
@@ -362,7 +426,7 @@ def main():
 
     if is_single_file:
         # Commit a single file
-        file_to_commit = target_path # target_path is already absolute
+        file_to_commit = abs_target_path # abs_target_path is already absolute
         
         # Check if file is ignored by .gitignore
         if is_file_ignored(file_to_commit):
@@ -391,9 +455,9 @@ def main():
             print("Single file commit failed after all attempts.")
     else: # It's a directory
         # Recursively find all files in the directory and collect their timestamps
-        # target_path is the absolute path to the directory
+        # abs_target_path is the absolute path to the directory
         files_with_timestamps = []
-        for root, _, files in os.walk(target_path):
+        for root, _, files in os.walk(abs_target_path):
             # Skip the .git directory and its contents
             if ".git" in root:
                 continue
