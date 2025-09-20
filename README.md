@@ -71,6 +71,12 @@ DIFF_CHAR_LIMIT=1000
 
 ### 3. Basic Usage
 
+#### Commit Files in the Current Directory
+If no path is provided, the script defaults to the current directory.
+```bash
+python main.py
+```
+
 #### Commit a Single File
 ```bash
 python main.py path/to/your/file.py
@@ -85,10 +91,18 @@ python main.py path/to/your/directory
 ```bash
 python main.py path/to/file.py --author "John Doe" --email "john@example.com"
 ```
+# Or with the current directory
+```bash
+python main.py --author "John Doe" --email "john@example.com"
+```
 
 #### Disable AI and Use Simple Messages
 ```bash
 python main.py path/to/file.py --no-ai
+```
+# Or with the current directory
+```bash
+python main.py --no-ai
 ```
 
 ## Detailed Usage
@@ -97,7 +111,7 @@ python main.py path/to/file.py --no-ai
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `path` | Path to file or directory to commit | Required |
+| `path` | Path to file or directory to commit. If not provided, defaults to the current directory. | Current working directory |
 | `--author` | Git author name | From `.env` |
 | `--email` | Git author email | From `.env` |
 | `--no-ai` | Disable AI message generation | AI enabled |
