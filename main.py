@@ -120,6 +120,47 @@ def is_file_new(file_path):
         print(f"Unexpected error checking file status for {file_path}: {e}")
         return False
 
+def has_staged_changes(file_paths):
+    """
+    Check if there are any staged changes for the given file paths.
+    Returns True if there are staged changes, False otherwise.
+    """
+    try:
+        # git diff --cached --quiet --exit-code
+        # --quiet: disables all output
+        # --exit-code: makes the program exit with 1 if there are differences, 0 otherwise
+        # --cached: checks staged changes
+        # We add '--' to separate file paths from options, though not strictly necessary here.
+        result = subprocess.run(
+            ["git", "diff", "--cached", "--quiet", "--exit-code", "--"] + file_paths,
+            capture_output=True, # We still capture stderr to check for errors
+            text=True,
+            check=False # We check returncode manually
+        )
+        
+        # returncode 0 means no differences (no staged changes)
+        # returncode 1 means differences found (staged changes exist)
+        # returncode > 1 means an error occurred
+        if result.returncode == 0:
+            return False # No staged changes
+        elif result.returncode == 1:
+            return True  # Staged changes exist
+        else:
+            # An error occurred
+            print(f"Error checking for staged changes for {file_paths}: {result.stderr.strip()}")
+            # Assume there are changes to be safe, or we could return False to skip.
+            # Returning True might lead to a commit error, which is more visible.
+            # Returning False might skip a commit that should happen.
+            # Let's assume there might be changes if the check fails.
+            return True 
+            
+    except FileNotFoundError:
+        print("Error: git command not found. Is Git installed and in your PATH?")
+        return False # Cannot check, assume no changes to prevent errors
+    except Exception as e:
+        print(f"Unexpected error checking for staged changes for {file_paths}: {e}")
+        return True # Assume there are changes if the check fails unexpectedly
+
 def get_appropriate_timestamp(file_path):
     """
     Get the appropriate timestamp for a file based on its status.
@@ -433,6 +474,24 @@ def main():
             print(f"File {file_to_commit} is ignored by .gitignore, skipping.")
             return
         
+        # Check if the file is up-to-date before attempting to commit
+        print(f"Checking status for single file: {file_to_commit}")
+        try:
+            status_result = subprocess.run(
+                ["git", "status", "--porcelain", file_to_commit],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            if not status_result.stdout.strip():
+                print(f"File {file_to_commit} is up to date (no changes detected). Skipping commit.")
+                return
+        except subprocess.CalledProcessError as e:
+            print(f"Warning: Could not get git status for {file_to_commit}: {e.stderr}. Assuming it needs commit.")
+        except FileNotFoundError:
+            print("Error: git command not found. Is Git installed and in your PATH?")
+            return
+
         # Get the appropriate timestamp based on file status
         commit_datetime = get_appropriate_timestamp(file_to_commit)
         commit_date = commit_datetime.date()
@@ -486,7 +545,32 @@ def main():
         failed_commits = 0
         for file_to_commit, commit_datetime in files_with_timestamps:
             commit_date = commit_datetime.date()
-            print(f"\n--- Committing file: {file_to_commit} (Date: {commit_date}) ---")
+            print(f"\n--- Processing file: {file_to_commit} (Date: {commit_date}) ---")
+
+            # Check if the file is up-to-date before attempting to commit
+            print(f"Checking status for file: {file_to_commit}")
+            try:
+                status_result = subprocess.run(
+                    ["git", "status", "--porcelain", file_to_commit],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                if not status_result.stdout.strip():
+                    print(f"File {file_to_commit} is up to date (no changes detected). Skipping commit.")
+                    continue # Skip to the next file in the loop
+            except subprocess.CalledProcessError as e:
+                print(f"Warning: Could not get git status for {file_to_commit}: {e.stderr}. Assuming it needs commit.")
+            except FileNotFoundError:
+                print("Error: git command not found. Is Git installed and in your PATH?")
+                # If git is not found, we can't proceed with any commits.
+                # Depending on desired behavior, could break or just fail this one.
+                # For now, let's just fail this one and continue to next if possible,
+                # though if git is not found, subsequent calls will also fail.
+                failed_commits +=1
+                continue
+
+            print(f"Committing file: {file_to_commit} with date {commit_date}")
             
             commit_hash = None
             if use_ai:
